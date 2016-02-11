@@ -16,6 +16,7 @@
 package nl.tudelft.graphalytics;
 
 import nl.tudelft.graphalytics.domain.*;
+import nl.tudelft.graphalytics.domain.system.SystemUnderTest;
 
 /**
  * The common interface for any platform that implements the Graphalytics benchmark suite. It
@@ -24,6 +25,10 @@ import nl.tudelft.graphalytics.domain.*;
  * {@link #deleteGraph(String) deleteGraph} functions to ensure the right graphs are loaded,
  * and uses {@link #executeAlgorithmOnGraph(Benchmark) executeAlgorithmOnGraph}
  * to trigger the executing of various algorithms on each graph.
+ *
+ * Note: it is highly recommended for platform implementations to extend {@link AbstractPlatform}
+ * instead of implementing the Platform interface. As Graphalytics evolves, this interface may
+ * be extended with additional (optional) methods.
  *
  * @author Tim Hegeman
  */
@@ -75,7 +80,7 @@ public interface Platform {
 	String getName();
 
 	/**
-	 * Returns a PlatformConfiguration object which describes the configuration of the platform
+	 * Returns a NestedConfiguration object which describes the configuration of the platform
 	 * in detail. This information should include all configuration options explicitly set by the user
 	 * or the platform driver, especially those options that can affect performance. The configuration
 	 * details are used by the Graphalytics core to include in the generated benchmark reports.
@@ -83,5 +88,14 @@ public interface Platform {
 	 * @return the configuration of the platform
 	 */
 	NestedConfiguration getPlatformConfiguration();
+
+	/**
+	 * Returns a description of the system under test as it will be used for subsequent benchmarks.
+	 * See the documentation of {@link System} for an overview of the information that should be
+	 * provided by this method.
+	 *
+	 * @return a description of the system under test
+	 */
+	SystemUnderTest getSystemUnderTest();
 
 }
