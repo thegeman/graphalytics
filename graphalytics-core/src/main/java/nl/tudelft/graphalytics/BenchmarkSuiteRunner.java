@@ -18,6 +18,7 @@ package nl.tudelft.graphalytics;
 import nl.tudelft.graphalytics.domain.*;
 import nl.tudelft.graphalytics.domain.BenchmarkResult.BenchmarkResultBuilder;
 import nl.tudelft.graphalytics.domain.BenchmarkSuiteResult.BenchmarkSuiteResultBuilder;
+import nl.tudelft.graphalytics.execution.TimeLimitExceededException;
 import nl.tudelft.graphalytics.plugin.Plugins;
 import nl.tudelft.graphalytics.util.GraphFileManager;
 import org.apache.commons.configuration.Configuration;
@@ -29,6 +30,11 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.concurrent.*;
+
+import static nl.tudelft.graphalytics.configuration.GraphalyticsProperties.BENCHMARK_PROPERTIES_FILE;
+import static nl.tudelft.graphalytics.configuration.GraphalyticsProperties.BENCHMARK_RUN_TIME_LIMIT_EXECUTE_ALGORITHM_KEY;
+import static nl.tudelft.graphalytics.configuration.GraphalyticsProperties.BENCHMARK_RUN_TIME_LIMIT_UPLOAD_GRAPH_KEY;
 
 /**
  * Helper class for executing all benchmarks in a BenchmarkSuite on a specific Platform.
@@ -42,15 +48,32 @@ public class BenchmarkSuiteRunner {
 	private final Platform platform;
 	private final Plugins plugins;
 
+	private final ExecutorService executorService;
+	private final long uploadGraphTimeout;
+	private final long executeAlgorithmTimeout;
+
 	/**
 	 * @param benchmarkSuite the suite of benchmarks to run
 	 * @param platform       the platform instance to run the benchmarks on
 	 * @param plugins        collection of loaded plugins
 	 */
-	public BenchmarkSuiteRunner(BenchmarkSuite benchmarkSuite, Platform platform, Plugins plugins) {
+	public BenchmarkSuiteRunner(BenchmarkSuite benchmarkSuite, Platform platform, Plugins plugins) throws ConfigurationException {
 		this.benchmarkSuite = benchmarkSuite;
 		this.platform = platform;
 		this.plugins = plugins;
+
+		Configuration graphConfiguration = new PropertiesConfiguration(BENCHMARK_PROPERTIES_FILE);
+		executeAlgorithmTimeout = graphConfiguration.getInt(BENCHMARK_RUN_TIME_LIMIT_EXECUTE_ALGORITHM_KEY, -1);
+		uploadGraphTimeout = graphConfiguration.getInt(BENCHMARK_RUN_TIME_LIMIT_UPLOAD_GRAPH_KEY, -1);
+
+		executorService = Executors.newSingleThreadExecutor(new ThreadFactory() {
+			@Override
+			public Thread newThread(Runnable r) {
+				Thread t = new Thread(r);
+				t.setDaemon(true);
+				return t;
+			}
+		});
 	}
 
 	/**
@@ -83,7 +106,7 @@ public class BenchmarkSuiteRunner {
 
 				// Upload the graph
 				try {
-					platform.uploadGraph(graph);
+					timeLimitUploadGraph(graph);
 				} catch (Exception ex) {
 					LOG.error("Failed to upload graph \"" + graph.getName() + "\", skipping.", ex);
 					continue;
@@ -119,7 +142,7 @@ public class BenchmarkSuiteRunner {
 							new PlatformBenchmarkResult(NestedConfiguration.empty());
 					boolean completedSuccessfully = false;
 					try {
-						platformBenchmarkResult = platform.executeAlgorithmOnGraph(benchmark);
+						platformBenchmarkResult = timeLimitExecuteAlgorithmOnGraph(benchmark);
 						completedSuccessfully = true;
 					} catch (PlatformExecutionException ex) {
 						LOG.error("Algorithm \"" + benchmark.getAlgorithm().getName() + "\" on graph \"" +
@@ -165,6 +188,87 @@ public class BenchmarkSuiteRunner {
 		return benchmarkSuiteResultBuilder.buildFromConfiguration(SystemDetails.empty(),
 				benchmarkConfiguration,
 				platform.getPlatformConfiguration());
+	}
+
+	private void timeLimitUploadGraph(final Graph graph) throws PlatformExecutionException {
+		// Trigger the upload of a graph in a separate thread
+		// A CountDownLatch is used to signal when the thread, and thus any computation, completes
+		final CountDownLatch completionSignal = new CountDownLatch(1);
+		Future<Boolean> uploadGraphFuture = executorService.submit(new Callable<Boolean>() {
+			@Override
+			public Boolean call() throws Exception {
+				try {
+					platform.uploadGraph(graph);
+					return true;
+				} finally {
+					completionSignal.countDown();
+				}
+			}
+		});
+
+		try {
+			if (uploadGraphTimeout >= 0) {
+				// If a time limit is specified for uploading a graph, wait at most that long for the graph to be uploaded
+				try {
+					uploadGraphFuture.get(uploadGraphTimeout, TimeUnit.SECONDS);
+				} catch (TimeoutException e) {
+					LOG.debug("Cancelling upload of graph {}", graph.getName());
+					uploadGraphFuture.cancel(true);
+					// Wait for the cancelled thread to complete to ensure that it does not interfere with future tasks
+					completionSignal.await();
+					throw new TimeLimitExceededException(String.format("Platform failed to upload graph %s within %d seconds", graph.getName(), uploadGraphTimeout));
+				}
+			} else {
+				uploadGraphFuture.get();
+			}
+		} catch (InterruptedException e) {
+			LOG.error("Aborting benchmark due to external interrupt.", e);
+			Thread.currentThread().interrupt();
+			throw new RuntimeException(e);
+		} catch (ExecutionException e) {
+			throw new PlatformExecutionException(String.format("Platform failed to upload graph %s", graph.getName()), e.getCause());
+		}
+	}
+
+	private PlatformBenchmarkResult timeLimitExecuteAlgorithmOnGraph(final Benchmark benchmark) throws PlatformExecutionException {
+		// Trigger the execution of an algorithm on a graph in a separate thread
+		// A CountDownLatch is used to signal when the thread, and thus any computation, completes
+		final CountDownLatch completionSignal = new CountDownLatch(1);
+		Future<PlatformBenchmarkResult> executeAlgorithmFuture = executorService.submit(new Callable<PlatformBenchmarkResult>() {
+			@Override
+			public PlatformBenchmarkResult call() throws Exception {
+				try {
+					return platform.executeAlgorithmOnGraph(benchmark);
+				} finally {
+					completionSignal.countDown();
+				}
+			}
+		});
+
+		try {
+			if (executeAlgorithmTimeout >= 0) {
+				// If a time limit is specified for the execution of an algorithm, wait at most that long for the algorithm to complete
+				try {
+					return executeAlgorithmFuture.get(executeAlgorithmTimeout, TimeUnit.SECONDS);
+				} catch (TimeoutException e) {
+					LOG.debug("Cancelling execution of algorithm {} on graph {}", benchmark.getAlgorithm().getAcronym(), benchmark.getGraph().getName());
+					executeAlgorithmFuture.cancel(true);
+					// Wait for the cancelled thread to complete to ensure that it does not interfere with future tasks
+					completionSignal.await();
+					throw new TimeLimitExceededException(String.format("Platform failed to execute algorithm %s on graph %s within %d seconds",
+							benchmark.getAlgorithm().getAcronym(), benchmark.getGraph().getName(), executeAlgorithmTimeout));
+				}
+			} else {
+				return executeAlgorithmFuture.get();
+			}
+		} catch (InterruptedException e) {
+			LOG.error("Aborting benchmark due to external interrupt.", e);
+			Thread.currentThread().interrupt();
+			throw new RuntimeException(e);
+		} catch (ExecutionException e) {
+			throw new PlatformExecutionException(String.format("Platform failed to execute algorithm %s on graph %s",
+					benchmark.getAlgorithm().getAcronym(), benchmark.getGraph().getName()), e.getCause());
+		}
 	}
 
 }

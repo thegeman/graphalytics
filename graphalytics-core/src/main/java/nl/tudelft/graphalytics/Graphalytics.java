@@ -44,8 +44,7 @@ public class Graphalytics {
 		// Signal to all plugins the start of the benchmark suite
 		plugins.preBenchmarkSuite(benchmarkSuite);
 		// Run the benchmark
-		BenchmarkSuiteResult benchmarkSuiteResult =
-				new BenchmarkSuiteRunner(benchmarkSuite, platformInstance, plugins).execute();
+		BenchmarkSuiteResult benchmarkSuiteResult = runBenchmark(benchmarkSuite, platformInstance, plugins);
 		// Notify all plugins of the result of running the benchmark suite
 		plugins.postBenchmarkSuite(benchmarkSuite, benchmarkSuiteResult);
 		// Generate the benchmark report
@@ -135,6 +134,14 @@ public class Graphalytics {
 					platformClass.getSimpleName() + "\".", e);
 		}
 		return platformInstance;
+	}
+
+	private static BenchmarkSuiteResult runBenchmark(BenchmarkSuite benchmarkSuite, Platform platformInstance, Plugins plugins) {
+		try {
+			return new BenchmarkSuiteRunner(benchmarkSuite, platformInstance, plugins).execute();
+		} catch (ConfigurationException e) {
+			throw new GraphalyticsLoaderException("Failed to read configuration while instantiating benchmark runner.", e);
+		}
 	}
 
 }
