@@ -36,15 +36,6 @@ import java.util.*;
 public final class BenchmarkSuiteParser {
 	private static final Logger LOG = LogManager.getLogger();
 
-	private static final String BENCHMARK_PROPERTIES_FILE = "benchmark.properties";
-	private static final String BENCHMARK_RUN_GRAPHS_KEY = "benchmark.run.graphs";
-	private static final String BENCHMARK_RUN_ALGORITHMS_KEY = "benchmark.run.algorithms";
-	private static final String BENCHMARK_RUN_OUTPUT_REQUIRED_KEY = "benchmark.run.output-required";
-	private static final String BENCHMARK_RUN_OUTPUT_DIRECTORY_KEY = "benchmark.run.output-directory";
-	private static final String GRAPHS_ROOT_DIRECTORY_KEY = "graphs.root-directory";
-	private static final String GRAPHS_CACHE_DIRECTORY_KEY = "graphs.cache-directory";
-	private static final String GRAPHS_NAMES_KEY = "graphs.names";
-
 	private final Configuration benchmarkConfiguration;
 
 	// Cached properties
@@ -74,7 +65,7 @@ public final class BenchmarkSuiteParser {
 	 */
 	public static BenchmarkSuite readBenchmarkSuiteFromProperties()
 			throws ConfigurationException, InvalidConfigurationException {
-		Configuration graphConfiguration = new PropertiesConfiguration(BENCHMARK_PROPERTIES_FILE);
+		Configuration graphConfiguration = new PropertiesConfiguration(GraphalyticsProperties.BENCHMARK_PROPERTIES_FILE);
 		return new BenchmarkSuiteParser(graphConfiguration).parse();
 	}
 
@@ -83,15 +74,15 @@ public final class BenchmarkSuiteParser {
 			return benchmarkSuite;
 		}
 
-		outputRequired = ConfigurationUtil.getBoolean(benchmarkConfiguration, BENCHMARK_RUN_OUTPUT_REQUIRED_KEY);
+		outputRequired = ConfigurationUtil.getBoolean(benchmarkConfiguration, GraphalyticsProperties.BENCHMARK_RUN_OUTPUT_REQUIRED_KEY);
 		if (outputRequired) {
-			outputDirectory = Paths.get(ConfigurationUtil.getString(benchmarkConfiguration, BENCHMARK_RUN_OUTPUT_DIRECTORY_KEY));
+			outputDirectory = Paths.get(ConfigurationUtil.getString(benchmarkConfiguration, GraphalyticsProperties.BENCHMARK_RUN_OUTPUT_DIRECTORY_KEY));
 		} else {
 			outputDirectory = Paths.get(".");
 		}
 
-		graphRootDirectory = ConfigurationUtil.getString(benchmarkConfiguration, GRAPHS_ROOT_DIRECTORY_KEY);
-		graphCacheDirectory = benchmarkConfiguration.getString(GRAPHS_CACHE_DIRECTORY_KEY,
+		graphRootDirectory = ConfigurationUtil.getString(benchmarkConfiguration, GraphalyticsProperties.GRAPHS_ROOT_DIRECTORY_KEY);
+		graphCacheDirectory = benchmarkConfiguration.getString(GraphalyticsProperties.GRAPHS_CACHE_DIRECTORY_KEY,
 				Paths.get(graphRootDirectory, "cache").toString());
 
 		Collection<GraphSetParser> graphSetParsers = constructGraphSetParsers();
@@ -106,7 +97,7 @@ public final class BenchmarkSuiteParser {
 	private Collection<GraphSetParser> constructGraphSetParsers()
 			throws InvalidConfigurationException {
 		// Get list of available graph sets
-		String[] graphNames = ConfigurationUtil.getStringArray(benchmarkConfiguration, GRAPHS_NAMES_KEY);
+		String[] graphNames = ConfigurationUtil.getStringArray(benchmarkConfiguration, GraphalyticsProperties.GRAPHS_NAMES_KEY);
 
 		// Parse each graph set individually
 		List<GraphSetParser> parsedGraphSets = new ArrayList<>(graphNames.length);
@@ -155,7 +146,7 @@ public final class BenchmarkSuiteParser {
 
 	private void parseGraphSetSelection() throws InvalidConfigurationException {
 		// Get list of selected graphs
-		String[] graphSelectionNames = benchmarkConfiguration.getStringArray(BENCHMARK_RUN_GRAPHS_KEY);
+		String[] graphSelectionNames = benchmarkConfiguration.getStringArray(GraphalyticsProperties.BENCHMARK_RUN_GRAPHS_KEY);
 
 		// Set graph selection to all graphs if the selection property is empty
 		if (graphSelectionNames.length == 0 || (graphSelectionNames.length == 1 && graphSelectionNames[0].isEmpty())) {
@@ -170,17 +161,17 @@ public final class BenchmarkSuiteParser {
 				graphSelection.add(graphSets.get(graphSelectionName));
 			} else if (!graphSelectionName.isEmpty()) {
 				LOG.warn("Found unknown graph name \"" + graphSelectionName + "\" in property \"" +
-						BENCHMARK_RUN_GRAPHS_KEY + "\".");
+						GraphalyticsProperties.BENCHMARK_RUN_GRAPHS_KEY + "\".");
 			} else {
 				throw new InvalidConfigurationException("Incorrectly formatted selection of graph names in property \"" +
-						BENCHMARK_RUN_GRAPHS_KEY + "\".");
+						GraphalyticsProperties.BENCHMARK_RUN_GRAPHS_KEY + "\".");
 			}
 		}
 	}
 
 	private void parseAlgorithmSelection() throws InvalidConfigurationException {
 		// Get list of selected algorithms
-		String[] algorithmSelectionNames = benchmarkConfiguration.getStringArray(BENCHMARK_RUN_ALGORITHMS_KEY);
+		String[] algorithmSelectionNames = benchmarkConfiguration.getStringArray(GraphalyticsProperties.BENCHMARK_RUN_ALGORITHMS_KEY);
 
 		// Set algorithm selection to all algorithms if the selection property is empty
 		if (algorithmSelectionNames.length == 0 || (algorithmSelectionNames.length == 1 && algorithmSelectionNames[0].isEmpty())) {
@@ -196,10 +187,10 @@ public final class BenchmarkSuiteParser {
 				algorithmSelection.add(algorithm);
 			} else if (!algorithmSelectionName.isEmpty()) {
 				LOG.warn("Found unknown algorithm name \"" + algorithmSelectionName + "\" in property \"" +
-						BENCHMARK_RUN_ALGORITHMS_KEY + "\".");
+						GraphalyticsProperties.BENCHMARK_RUN_ALGORITHMS_KEY + "\".");
 			} else {
 				throw new InvalidConfigurationException("Incorrectly formatted selection of algorithm names in property \"" +
-						BENCHMARK_RUN_ALGORITHMS_KEY + "\".");
+						GraphalyticsProperties.BENCHMARK_RUN_ALGORITHMS_KEY + "\".");
 			}
 		}
 	}
