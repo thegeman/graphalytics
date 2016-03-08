@@ -48,7 +48,6 @@ public class BenchmarkSuiteRunner {
 	private final Platform platform;
 	private final Plugins plugins;
 
-	private final ExecutorService executorService;
 	private final long uploadGraphTimeout;
 	private final long executeAlgorithmTimeout;
 
@@ -65,15 +64,6 @@ public class BenchmarkSuiteRunner {
 		Configuration graphConfiguration = new PropertiesConfiguration(BENCHMARK_PROPERTIES_FILE);
 		executeAlgorithmTimeout = graphConfiguration.getInt(BENCHMARK_RUN_TIME_LIMIT_EXECUTE_ALGORITHM_KEY, -1);
 		uploadGraphTimeout = graphConfiguration.getInt(BENCHMARK_RUN_TIME_LIMIT_UPLOAD_GRAPH_KEY, -1);
-
-		executorService = Executors.newSingleThreadExecutor(new ThreadFactory() {
-			@Override
-			public Thread newThread(Runnable r) {
-				Thread t = new Thread(r);
-				t.setDaemon(true);
-				return t;
-			}
-		});
 	}
 
 	/**
@@ -192,19 +182,15 @@ public class BenchmarkSuiteRunner {
 
 	private void timeLimitUploadGraph(final Graph graph) throws PlatformExecutionException {
 		// Trigger the upload of a graph in a separate thread
-		// A CountDownLatch is used to signal when the thread, and thus any computation, completes
-		final CountDownLatch completionSignal = new CountDownLatch(1);
-		Future<Boolean> uploadGraphFuture = executorService.submit(new Callable<Boolean>() {
+		FutureTask<?> uploadGraphFuture = new FutureTask<>(new Callable<Object>() {
 			@Override
-			public Boolean call() throws Exception {
-				try {
-					platform.uploadGraph(graph);
-					return true;
-				} finally {
-					completionSignal.countDown();
-				}
+			public Object call() throws Exception {
+				platform.uploadGraph(graph);
+				return null;
 			}
 		});
+		Thread uploadGraphThread = new Thread(uploadGraphFuture);
+		uploadGraphThread.start();
 
 		try {
 			if (uploadGraphTimeout >= 0) {
@@ -215,7 +201,7 @@ public class BenchmarkSuiteRunner {
 					LOG.debug("Cancelling upload of graph {}", graph.getName());
 					uploadGraphFuture.cancel(true);
 					// Wait for the cancelled thread to complete to ensure that it does not interfere with future tasks
-					completionSignal.await();
+					uploadGraphThread.join();
 					throw new TimeLimitExceededException(String.format("Platform failed to upload graph %s within %d seconds", graph.getName(), uploadGraphTimeout));
 				}
 			} else {
@@ -232,18 +218,15 @@ public class BenchmarkSuiteRunner {
 
 	private PlatformBenchmarkResult timeLimitExecuteAlgorithmOnGraph(final Benchmark benchmark) throws PlatformExecutionException {
 		// Trigger the execution of an algorithm on a graph in a separate thread
-		// A CountDownLatch is used to signal when the thread, and thus any computation, completes
-		final CountDownLatch completionSignal = new CountDownLatch(1);
-		Future<PlatformBenchmarkResult> executeAlgorithmFuture = executorService.submit(new Callable<PlatformBenchmarkResult>() {
-			@Override
-			public PlatformBenchmarkResult call() throws Exception {
-				try {
-					return platform.executeAlgorithmOnGraph(benchmark);
-				} finally {
-					completionSignal.countDown();
-				}
-			}
-		});
+		FutureTask<PlatformBenchmarkResult> executeAlgorithmFuture = new FutureTask<>(
+				new Callable<PlatformBenchmarkResult>() {
+					@Override
+					public PlatformBenchmarkResult call() throws Exception {
+						return platform.executeAlgorithmOnGraph(benchmark);
+					}
+				});
+		Thread executeAlgorithmThread = new Thread(executeAlgorithmFuture);
+		executeAlgorithmThread.start();
 
 		try {
 			if (executeAlgorithmTimeout >= 0) {
@@ -254,7 +237,7 @@ public class BenchmarkSuiteRunner {
 					LOG.debug("Cancelling execution of algorithm {} on graph {}", benchmark.getAlgorithm().getAcronym(), benchmark.getGraph().getName());
 					executeAlgorithmFuture.cancel(true);
 					// Wait for the cancelled thread to complete to ensure that it does not interfere with future tasks
-					completionSignal.await();
+					executeAlgorithmThread.join();
 					throw new TimeLimitExceededException(String.format("Platform failed to execute algorithm %s on graph %s within %d seconds",
 							benchmark.getAlgorithm().getAcronym(), benchmark.getGraph().getName(), executeAlgorithmTimeout));
 				}
