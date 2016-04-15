@@ -18,11 +18,11 @@
 
 set -e
 
-rootdir=$(dirname $(readlink -f ${BASH_SOURCE[0]}))
+rootdir="$(cd "$(dirname "$0")" && pwd -P)"
 config="${rootdir}/config/"
 
 function print-usage() {
-	echo "Usage: ${BASH_SOURCE[0]} [--config <dir>]" >&2
+	echo "Usage: $0 [--config <dir>]" >&2
 }
 
 # Parse the command-line arguments
@@ -30,7 +30,7 @@ while :
 do
 	case "$1" in
 		--config)                      # Use a different config directory
-			config="$(readlink -f "$2")"
+			config="$(cd "$(dirname "$2")" && pwd -P)/$(basename "$2")"
 			echo "Using config: $config"
 			shift 2
 			;;
@@ -50,7 +50,7 @@ do
 done
 
 # Execute platform specific initialization
-export config=$config
+export config="$config"
 . prepare-benchmark.sh "$@"
 
 # Verify that the platform variable is set
